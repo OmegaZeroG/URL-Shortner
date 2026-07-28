@@ -1,5 +1,6 @@
 const pool = require('../config/db');
 const { encode } = require('../utils/base62');
+const { getCachedLongUrl, cacheLongUrl } = require('../utils/cache');
 
 const CUSTOM_ALIAS_RE = /^[a-zA-Z0-9_-]{3,32}$/;
 
@@ -63,29 +64,40 @@ async function redirectUrl(req, res) {
   const { code } = req.params;
 
   try {
-    const result = await pool.query(
-      'SELECT id, long_url, expires_at FROM links WHERE short_code = $1',
-      [code]
-    );
+    // Cache-aside: check Redis first (see DESIGN.md section 8 / utils/cache.js).
+    let longUrl = await getCachedLongUrl(code);
 
-    if (result.rows.length === 0) {
-      return res.status(404).json({ error: 'Short link not found' });
-    }
+    if (!longUrl) {
+      const result = await pool.query(
+        'SELECT long_url, expires_at FROM links WHERE short_code = $1',
+        [code]
+      );
 
-    const link = result.rows[0];
-    if (link.expires_at && new Date(link.expires_at) < new Date()) {
-      return res.status(410).json({ error: 'This link has expired' });
+      if (result.rows.length === 0) {
+        return res.status(404).json({ error: 'Short link not found' });
+      }
+
+      const link = result.rows[0];
+      if (link.expires_at && new Date(link.expires_at) < new Date()) {
+        return res.status(410).json({ error: 'This link has expired' });
+      }
+
+      longUrl = link.long_url;
+      // Populate the cache for next time. Fire-and-forget-ish: awaited here
+      // so the TTL logic runs, but any failure inside is already caught and
+      // logged, never thrown (see cacheLongUrl).
+      await cacheLongUrl(code, longUrl, link.expires_at);
     }
 
     // Fire-and-forget click counter increment — never block the redirect
     // on this write (see DESIGN.md section 6 on why click_count is async).
     pool
-      .query('UPDATE links SET click_count = click_count + 1 WHERE id = $1', [
-        link.id,
+      .query('UPDATE links SET click_count = click_count + 1 WHERE short_code = $1', [
+        code,
       ])
       .catch((err) => console.error('click_count update failed:', err));
 
-    return res.redirect(302, link.long_url);
+    return res.redirect(302, longUrl);
   } catch (err) {
     console.error('redirectUrl error:', err);
     return res.status(500).json({ error: 'Internal server error' });
