@@ -2,6 +2,8 @@
 
 [![CI/CD](https://github.com/OmegaZeroG/URL-Shortner/actions/workflows/ci-cd.yml/badge.svg)](https://github.com/OmegaZeroG/URL-Shortner/actions/workflows/ci-cd.yml)
 
+**Live**: https://om-url-shortener.vercel.app (frontend) · https://url-shortener-backend-tmhc.onrender.com (API)
+
 A portfolio project demonstrating system-design fundamentals: URL shortening with Base62 encoding, Redis caching, rate limiting, JWT auth, and click analytics.
 
 See [`../DESIGN.md`](../DESIGN.md) for the full system design doc (requirements, capacity estimation, API contract, DB schema, encoding strategy, architecture) and [`../PROGRESS.md`](../PROGRESS.md) for build progress.
