@@ -85,7 +85,7 @@ Push to `master` and the `deploy` job in the Actions tab will fire once tests pa
 - [x] `GET /:code` — 302 redirect, async click_count increment, expiry check
 - [x] Redis (Upstash) caching in front of redirect lookups — cache-aside pattern, see `src/utils/cache.js`
 - [x] CI/CD: GitHub Actions lints + tests on every push/PR, deploys to Render + Vercel only on a passing push to `master`
-- [ ] Rate limiting
+- [x] Rate limiting — 10 requests/min per IP on `POST /api/shorten`, Redis-backed (`src/middleware/rateLimiter.js`)
 - [ ] JWT auth + per-user link management
 - [ ] Analytics dashboard
 
