@@ -2,6 +2,7 @@ const express = require('express');
 const cors = require('cors');
 const pool = require('./config/db');
 const linkRoutes = require('./routes/linkRoutes');
+const authRoutes = require('./routes/authRoutes');
 
 const app = express();
 
@@ -23,6 +24,7 @@ app.get('/health', async (req, res) => {
   }
 });
 
+app.use('/', authRoutes);
 app.use('/', linkRoutes);
 
 // 404 fallback
