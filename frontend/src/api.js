@@ -47,3 +47,7 @@ export function getMyLinks(token) {
 export function deleteLink(token, code) {
   return request(`/api/links/${code}`, { method: 'DELETE', token });
 }
+
+export function getLinkAnalytics(token, code) {
+  return request(`/api/links/${code}/analytics`, { token });
+}

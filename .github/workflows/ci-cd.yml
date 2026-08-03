@@ -23,6 +23,10 @@ jobs:
       - run: npm ci
       - run: npm run lint
       - run: npm test
+      # Fails the build only on high/critical vulnerabilities — moderate/low
+      # findings are common in transitive deps and shouldn't block every PR,
+      # but a known-exploitable high-severity dependency should.
+      - run: npm audit --audit-level=high
 
   frontend-build:
     name: Frontend build
@@ -39,6 +43,11 @@ jobs:
           cache-dependency-path: frontend/package-lock.json
       - run: npm ci
       - run: npm run build
+      # Informational, not blocking: the current finding is a Vite dev-server
+      # only vulnerability (doesn't affect the production build) whose full
+      # fix requires a breaking major Vite version bump — worth doing as its
+      # own tested change, not force-applied inside a CI step.
+      - run: npm audit --audit-level=high || true
 
   deploy:
     name: Deploy (Render + Vercel)

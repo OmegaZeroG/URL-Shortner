@@ -3,6 +3,7 @@ import Nav from './components/Nav';
 import ShortenForm from './components/ShortenForm';
 import AuthForm from './components/AuthForm';
 import MyLinks from './components/MyLinks';
+import Analytics from './components/Analytics';
 import { styles } from './styles';
 
 const TOKEN_KEY = 'url_shortener_token';
@@ -12,6 +13,7 @@ export default function App() {
   const [token, setToken] = useState(() => localStorage.getItem(TOKEN_KEY) || '');
   const [userEmail, setUserEmail] = useState(() => localStorage.getItem(EMAIL_KEY) || '');
   const [view, setView] = useState('shorten');
+  const [analyticsCode, setAnalyticsCode] = useState(null);
 
   function handleAuthed(newToken, email) {
     localStorage.setItem(TOKEN_KEY, newToken);
@@ -29,6 +31,11 @@ export default function App() {
     setView('shorten');
   }
 
+  function handleViewAnalytics(code) {
+    setAnalyticsCode(code);
+    setView('analytics');
+  }
+
   const isAuthed = Boolean(token);
 
   return (
@@ -44,7 +51,12 @@ export default function App() {
       {view === 'shorten' && <ShortenForm token={token} />}
       {view === 'login' && <AuthForm mode="login" onAuthed={handleAuthed} setView={setView} />}
       {view === 'signup' && <AuthForm mode="signup" onAuthed={handleAuthed} setView={setView} />}
-      {view === 'mylinks' && isAuthed && <MyLinks token={token} />}
+      {view === 'mylinks' && isAuthed && (
+        <MyLinks token={token} onViewAnalytics={handleViewAnalytics} />
+      )}
+      {view === 'analytics' && isAuthed && analyticsCode && (
+        <Analytics token={token} code={analyticsCode} onBack={() => setView('mylinks')} />
+      )}
     </div>
   );
 }

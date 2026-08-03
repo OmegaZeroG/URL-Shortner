@@ -1,6 +1,7 @@
 const pool = require('../config/db');
 const { encode } = require('../utils/base62');
-const { getCachedLongUrl, cacheLongUrl } = require('../utils/cache');
+const { getCachedLink, cacheLink } = require('../utils/cache');
+const { recordClickEvent } = require('../utils/clickEvents');
 
 const CUSTOM_ALIAS_RE = /^[a-zA-Z0-9_-]{3,32}$/;
 
@@ -70,11 +71,15 @@ async function redirectUrl(req, res) {
 
   try {
     // Cache-aside: check Redis first (see DESIGN.md section 8 / utils/cache.js).
-    let longUrl = await getCachedLongUrl(code);
+    // linkId is cached alongside longUrl so click-event logging below never
+    // needs a second DB round-trip just to resolve short_code -> id.
+    let cached = await getCachedLink(code);
+    let longUrl = cached?.longUrl;
+    let linkId = cached?.linkId;
 
     if (!longUrl) {
       const result = await pool.query(
-        'SELECT long_url, expires_at FROM links WHERE short_code = $1',
+        'SELECT id, long_url, expires_at FROM links WHERE short_code = $1',
         [code]
       );
 
@@ -88,10 +93,11 @@ async function redirectUrl(req, res) {
       }
 
       longUrl = link.long_url;
+      linkId = link.id;
       // Populate the cache for next time. Fire-and-forget-ish: awaited here
       // so the TTL logic runs, but any failure inside is already caught and
-      // logged, never thrown (see cacheLongUrl).
-      await cacheLongUrl(code, longUrl, link.expires_at);
+      // logged, never thrown (see cacheLink).
+      await cacheLink(code, { longUrl, linkId }, link.expires_at);
     }
 
     // Fire-and-forget click counter increment — never block the redirect
@@ -101,6 +107,16 @@ async function redirectUrl(req, res) {
         code,
       ])
       .catch((err) => console.error('click_count update failed:', err));
+
+    // Fire-and-forget detailed click event (geo/device/browser/referrer) for
+    // the analytics dashboard — same non-blocking pattern as the counter
+    // above, see utils/clickEvents.js.
+    recordClickEvent({
+      linkId,
+      ip: req.ip,
+      userAgent: req.headers['user-agent'],
+      referrer: req.headers.referer || req.headers.referrer,
+    }).catch((err) => console.error('recordClickEvent failed:', err));
 
     return res.redirect(302, longUrl);
   } catch (err) {
@@ -128,6 +144,64 @@ async function getMyLinks(req, res) {
     return res.json({ links });
   } catch (err) {
     console.error('getMyLinks error:', err);
+    return res.status(500).json({ error: 'Internal server error' });
+  }
+}
+
+async function getLinkAnalytics(req, res) {
+  const { code } = req.params;
+  try {
+    const linkResult = await pool.query(
+      'SELECT id FROM links WHERE short_code = $1 AND owner_id = $2',
+      [code, req.user.id]
+    );
+    if (linkResult.rows.length === 0) {
+      // Same 404 for "doesn't exist" and "not yours" — see deleteLink for
+      // why we don't distinguish the two.
+      return res.status(404).json({ error: 'Link not found' });
+    }
+    const linkId = linkResult.rows[0].id;
+
+    // Five independent aggregate queries run in parallel rather than one
+    // big query — each GROUP BY is over a different dimension, so combining
+    // them into one query would require expensive self-joins for no benefit.
+    const [byDay, byDevice, byBrowser, byCountry, byReferrer] = await Promise.all([
+      pool.query(
+        `SELECT date_trunc('day', clicked_at) AS day, COUNT(*) AS count
+         FROM click_events WHERE link_id = $1 GROUP BY day ORDER BY day ASC`,
+        [linkId]
+      ),
+      pool.query(
+        `SELECT COALESCE(device, 'desktop') AS device, COUNT(*) AS count
+         FROM click_events WHERE link_id = $1 GROUP BY device ORDER BY count DESC`,
+        [linkId]
+      ),
+      pool.query(
+        `SELECT COALESCE(browser, 'Unknown') AS browser, COUNT(*) AS count
+         FROM click_events WHERE link_id = $1 GROUP BY browser ORDER BY count DESC`,
+        [linkId]
+      ),
+      pool.query(
+        `SELECT COALESCE(country, 'Unknown') AS country, COUNT(*) AS count
+         FROM click_events WHERE link_id = $1 GROUP BY country ORDER BY count DESC`,
+        [linkId]
+      ),
+      pool.query(
+        `SELECT COALESCE(NULLIF(referrer, ''), 'Direct') AS referrer, COUNT(*) AS count
+         FROM click_events WHERE link_id = $1 GROUP BY referrer ORDER BY count DESC LIMIT 10`,
+        [linkId]
+      ),
+    ]);
+
+    return res.json({
+      clicksByDay: byDay.rows.map((r) => ({ date: r.day, count: Number(r.count) })),
+      byDevice: byDevice.rows.map((r) => ({ device: r.device, count: Number(r.count) })),
+      byBrowser: byBrowser.rows.map((r) => ({ browser: r.browser, count: Number(r.count) })),
+      byCountry: byCountry.rows.map((r) => ({ country: r.country, count: Number(r.count) })),
+      byReferrer: byReferrer.rows.map((r) => ({ referrer: r.referrer, count: Number(r.count) })),
+    });
+  } catch (err) {
+    console.error('getLinkAnalytics error:', err);
     return res.status(500).json({ error: 'Internal server error' });
   }
 }
@@ -161,4 +235,4 @@ function toResponse(row, req) {
   };
 }
 
-module.exports = { shortenUrl, redirectUrl, getMyLinks, deleteLink };
+module.exports = { shortenUrl, redirectUrl, getMyLinks, getLinkAnalytics, deleteLink };

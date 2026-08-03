@@ -2,7 +2,7 @@ import { useEffect, useState } from 'react';
 import { getMyLinks, deleteLink } from '../api';
 import { styles } from '../styles';
 
-export default function MyLinks({ token }) {
+export default function MyLinks({ token, onViewAnalytics }) {
   const [links, setLinks] = useState(null);
   const [error, setError] = useState('');
 
@@ -54,6 +54,12 @@ export default function MyLinks({ token }) {
                 <td style={styles.td}>{link.longUrl}</td>
                 <td style={styles.td}>{link.clickCount}</td>
                 <td style={styles.td}>
+                  <button
+                    style={styles.analyticsButton}
+                    onClick={() => onViewAnalytics(link.shortCode)}
+                  >
+                    Analytics
+                  </button>
                   <button style={styles.deleteButton} onClick={() => handleDelete(link.shortCode)}>
                     Delete
                   </button>

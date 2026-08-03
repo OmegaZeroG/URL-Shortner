@@ -3,6 +3,7 @@ const {
   shortenUrl,
   redirectUrl,
   getMyLinks,
+  getLinkAnalytics,
   deleteLink,
 } = require('../controllers/linkController');
 const { shortenLimiter } = require('../middleware/rateLimiter');
@@ -14,8 +15,9 @@ const router = express.Router();
 // present the link gets attributed to that user (see linkController.js).
 router.post('/api/shorten', optionalAuth, shortenLimiter, shortenUrl);
 
-// Both of these require a logged-in user — there's no "anonymous" version.
+// All of these require a logged-in user — there's no "anonymous" version.
 router.get('/api/links', requireAuth, getMyLinks);
+router.get('/api/links/:code/analytics', requireAuth, getLinkAnalytics);
 router.delete('/api/links/:code', requireAuth, deleteLink);
 
 // Must stay last: this catches any other single-segment path as a short

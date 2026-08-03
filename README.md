@@ -80,6 +80,17 @@ In the GitHub repo → Settings → Secrets and variables → Actions, add:
 
 Push to `master` and the `deploy` job in the Actions tab will fire once tests pass.
 
+## Load Test Results
+
+Benchmarked with [k6](https://k6.io) against a local instance (still using the real production Neon + Upstash over the network, nothing mocked) — see `backend/loadtest/` for the scripts and methodology. Compares the redirect path (`GET /:code`) on a guaranteed Redis cache miss (falls through to Postgres) vs. a guaranteed cache hit (served entirely from Redis).
+
+| Scenario | Requests | p50 | p90 | p95 | max |
+|---|---|---|---|---|---|
+| Cache **miss** (Postgres) | 200 (20 VUs) | 301.6ms | 381.9ms | 580.7ms | 1.64s |
+| Cache **hit** (Redis) | 6,351 (20 VUs, 30s) | 93.6ms | 96.0ms | 98.0ms | 261.5ms |
+
+**The Redis cache-aside layer cuts redirect latency by ~3.2x at p50 and ~5.9x at p95**, with the gap widening at the tail — the cache-miss path has much higher variance (Postgres connection + query overhead), while the cache-hit path stays consistently fast under sustained concurrent load (0% errors across all 6,351 requests). This is the concrete evidence behind the caching decision in `DESIGN.md` section 8, not just a design assumption.
+
 ## Current status: Phase 2 + CI/CD
 - [x] `POST /api/shorten` — Base62-encoded short codes + custom alias support
 - [x] `GET /:code` — 302 redirect, async click_count increment, expiry check
@@ -87,6 +98,6 @@ Push to `master` and the `deploy` job in the Actions tab will fire once tests pa
 - [x] CI/CD: GitHub Actions lints + tests on every push/PR, deploys to Render + Vercel only on a passing push to `master`
 - [x] Rate limiting — 10 requests/min per IP on `POST /api/shorten`, Redis-backed (`src/middleware/rateLimiter.js`)
 - [x] JWT auth + per-user link management — signup/login, bcrypt password hashing, Bearer token stored in localStorage, "My Links" dashboard (list + delete, owner-only), anonymous shortening still works
-- [ ] Analytics dashboard
+- [x] Analytics dashboard — click events logged async per redirect (device/browser via `ua-parser-js`, country via `ip-api.com`, referrer), charted per-link in the frontend (clicks over time + device/browser/country/referrer breakdown, via Recharts)
 
 Full roadmap: see `../url-shortener-project-plan.md`.

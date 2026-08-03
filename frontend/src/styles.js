@@ -116,4 +116,32 @@ export const styles = {
     cursor: 'pointer',
     fontSize: '0.8rem',
   },
+  analyticsButton: {
+    padding: '0.3rem 0.6rem',
+    borderRadius: '6px',
+    border: 'none',
+    background: '#334155',
+    color: '#c7d2fe',
+    cursor: 'pointer',
+    fontSize: '0.8rem',
+    marginRight: '0.4rem',
+  },
+  breakdownCard: {
+    background: '#0f172a',
+    borderRadius: '8px',
+    padding: '1rem',
+    marginTop: '1rem',
+  },
+  breakdownTitle: {
+    color: '#94a3b8',
+    fontSize: '0.9rem',
+    fontWeight: 500,
+    marginBottom: '0.5rem',
+  },
+  breakdownGrid: {
+    display: 'grid',
+    gridTemplateColumns: 'repeat(auto-fit, minmax(280px, 1fr))',
+    gap: '1rem',
+    marginTop: '1rem',
+  },
 };

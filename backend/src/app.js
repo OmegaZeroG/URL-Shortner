@@ -1,12 +1,48 @@
 const express = require('express');
 const cors = require('cors');
+const helmet = require('helmet');
 const pool = require('./config/db');
 const linkRoutes = require('./routes/linkRoutes');
 const authRoutes = require('./routes/authRoutes');
 
 const app = express();
 
-app.use(cors());
+// Render (and most PaaS platforms) sit behind a reverse proxy. Without this,
+// req.ip returns the proxy's internal IP for every single request instead
+// of the real client IP — silently breaking both the per-IP rate limiter
+// (middleware/rateLimiter.js) and geo lookups (utils/geo.js), since every
+// request would appear to come from the same "IP." This tells Express to
+// trust the X-Forwarded-For header set by Render's proxy (one hop).
+app.set('trust proxy', 1);
+
+// Standard secure headers (CSP, HSTS, X-Frame-Options, etc.) — disable
+// contentSecurityPolicy's default directives since this is a JSON API, not
+// a page that serves its own HTML/scripts; a strict default CSP has no
+// effect here and just adds noise to headers.
+app.use(helmet({ contentSecurityPolicy: false }));
+
+// Locked down to specific origins instead of the previous wildcard — set
+// FRONTEND_ORIGIN to a comma-separated list in .env (defaults to the local
+// Vite dev server). Requests with no Origin header (curl, server-to-server,
+// the GET /:code redirect itself since that's a top-level browser
+// navigation, not a fetch/XHR) are always allowed — CORS only governs
+// cross-origin fetch/XHR calls, it has no effect on direct navigation.
+const allowedOrigins = (process.env.FRONTEND_ORIGIN || 'http://localhost:5173')
+  .split(',')
+  .map((s) => s.trim())
+  .filter(Boolean);
+
+app.use(
+  cors({
+    origin(origin, callback) {
+      if (!origin || allowedOrigins.includes(origin)) {
+        return callback(null, true);
+      }
+      return callback(new Error('Not allowed by CORS'));
+    },
+  })
+);
+
 app.use(express.json());
 
 // Touches Postgres (not just the Node process) so an external keep-alive
