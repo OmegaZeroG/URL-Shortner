@@ -25,7 +25,7 @@
     "ua-parser-js": "^1.0.38"
   },
   "devDependencies": {
-    "eslint": "^8.57.0",
+    "eslint": "^10.8.0",
     "jest": "^29.7.0",
     "nodemon": "^3.1.4"
   }
