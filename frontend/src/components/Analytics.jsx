@@ -1,49 +1,8 @@
 import { useEffect, useState } from 'react';
 import * as Sentry from '@sentry/react';
-import {
-  ResponsiveContainer,
-  LineChart,
-  Line,
-  XAxis,
-  YAxis,
-  CartesianGrid,
-  Tooltip,
-  BarChart,
-  Bar,
-} from 'recharts';
+import { ArrowLeft } from 'lucide-react';
 import { getLinkAnalytics, isUnexpectedError } from '../api';
-import { styles } from '../styles';
-
-const COLORS = { line: '#6366f1', bar: '#818cf8' };
-
-function BreakdownChart({ title, data, dataKey, nameKey }) {
-  if (!data || data.length === 0) {
-    return (
-      <div style={styles.breakdownCard}>
-        <h3 style={styles.breakdownTitle}>{title}</h3>
-        <p style={{ color: '#64748b', fontSize: '0.85rem' }}>No data yet</p>
-      </div>
-    );
-  }
-  return (
-    <div style={styles.breakdownCard}>
-      <h3 style={styles.breakdownTitle}>{title}</h3>
-      <ResponsiveContainer width="100%" height={160}>
-        <BarChart data={data} layout="vertical" margin={{ left: 10, right: 10 }}>
-          <XAxis type="number" hide />
-          <YAxis
-            type="category"
-            dataKey={nameKey}
-            width={90}
-            tick={{ fill: '#94a3b8', fontSize: 12 }}
-          />
-          <Tooltip contentStyle={{ background: '#0f172a', border: '1px solid #334155' }} />
-          <Bar dataKey={dataKey} fill={COLORS.bar} radius={[0, 4, 4, 0]} />
-        </BarChart>
-      </ResponsiveContainer>
-    </div>
-  );
-}
+import { StatBars, ClicksChart } from './Charts';
 
 export default function Analytics({ token, code, onBack }) {
   const [data, setData] = useState(null);
@@ -58,57 +17,75 @@ export default function Analytics({ token, code, onBack }) {
       });
   }, [token, code]);
 
-  const totalClicks = data?.clicksByDay?.reduce((sum, d) => sum + d.count, 0) ?? 0;
-
-  const clicksByDayFormatted =
-    data?.clicksByDay?.map((d) => ({
-      ...d,
-      label: new Date(d.date).toLocaleDateString(undefined, { month: 'short', day: 'numeric' }),
-    })) ?? [];
-
-  return (
-    <div style={styles.wideCard}>
-      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-        <h1 style={{ ...styles.heading, marginBottom: 0 }}>Analytics: {code}</h1>
-        <button style={styles.linkButton} onClick={onBack}>
-          ← Back to My Links
+  if (error) {
+    return (
+      <div className="panel rounded-2xl p-10 text-center">
+        <h1 className="text-2xl font-bold">Couldn't load analytics</h1>
+        <p className="mt-2 text-sm text-muted-foreground">{error}</p>
+        <button onClick={onBack} className="mt-6 inline-block text-sm text-primary hover:underline">
+          Back to my links
         </button>
       </div>
+    );
+  }
 
-      {error && <p style={styles.error}>{error}</p>}
-      {!data && !error && <p style={{ color: '#94a3b8' }}>Loading...</p>}
+  if (!data) {
+    return <p className="text-center text-sm text-muted-foreground">Loading...</p>;
+  }
 
-      {data && (
-        <>
-          <p style={{ color: '#f1f5f9', fontSize: '2rem', fontWeight: 700, margin: '1rem 0' }}>
-            {totalClicks} <span style={{ fontSize: '1rem', color: '#94a3b8' }}>total clicks</span>
+  const totalClicks = data.clicksByDay.reduce((sum, d) => sum + d.count, 0);
+  const peakDay = Math.max(0, ...data.clicksByDay.map((d) => d.count));
+
+  const timeline = data.clicksByDay.map((d) => ({
+    date: new Date(d.date).toLocaleDateString(undefined, { month: 'short', day: 'numeric' }),
+    clicks: d.count,
+  }));
+
+  const toEntries = (rows, key) =>
+    rows.map((r) => ({ label: r[key], value: r.count }));
+
+  return (
+    <>
+      <header className="rise-in grid grid-cols-[minmax(0,1fr)_auto] items-start gap-4 sm:flex sm:justify-between">
+        <div className="min-w-0">
+          <p className="text-xs font-semibold uppercase tracking-[0.14em] text-muted-foreground">
+            Analytics
           </p>
+          <h1 className="mt-2 truncate font-mono text-2xl font-bold sm:text-3xl">{code}</h1>
+        </div>
+        <button
+          onClick={onBack}
+          className="flex shrink-0 items-center gap-1.5 rounded-xl border border-border px-3.5 py-2 text-sm text-muted-foreground transition-colors duration-200 hover:bg-secondary hover:text-foreground"
+        >
+          <ArrowLeft className="h-3.5 w-3.5" />
+          <span className="hidden sm:inline">My links</span>
+        </button>
+      </header>
 
-          <div style={styles.breakdownCard}>
-            <h3 style={styles.breakdownTitle}>Clicks over time</h3>
-            {clicksByDayFormatted.length === 0 ? (
-              <p style={{ color: '#64748b', fontSize: '0.85rem' }}>No clicks yet</p>
-            ) : (
-              <ResponsiveContainer width="100%" height={180}>
-                <LineChart data={clicksByDayFormatted}>
-                  <CartesianGrid stroke="#334155" strokeDasharray="3 3" />
-                  <XAxis dataKey="label" tick={{ fill: '#94a3b8', fontSize: 12 }} />
-                  <YAxis allowDecimals={false} tick={{ fill: '#94a3b8', fontSize: 12 }} />
-                  <Tooltip contentStyle={{ background: '#0f172a', border: '1px solid #334155' }} />
-                  <Line type="monotone" dataKey="count" stroke={COLORS.line} strokeWidth={2} />
-                </LineChart>
-              </ResponsiveContainer>
-            )}
+      <div className="rise-in mt-8 grid gap-4 sm:grid-cols-2" style={{ animationDelay: '60ms' }}>
+        {[
+          { label: 'Total clicks', value: totalClicks.toLocaleString() },
+          { label: 'Peak day', value: peakDay.toLocaleString() },
+        ].map((stat) => (
+          <div key={stat.label} className="panel rounded-2xl p-5">
+            <p className="text-[11px] font-semibold uppercase tracking-[0.14em] text-muted-foreground">
+              {stat.label}
+            </p>
+            <p className="mt-2 font-display text-2xl font-bold">{stat.value}</p>
           </div>
+        ))}
+      </div>
 
-          <div style={styles.breakdownGrid}>
-            <BreakdownChart title="Device" data={data.byDevice} dataKey="count" nameKey="device" />
-            <BreakdownChart title="Browser" data={data.byBrowser} dataKey="count" nameKey="browser" />
-            <BreakdownChart title="Country" data={data.byCountry} dataKey="count" nameKey="country" />
-            <BreakdownChart title="Referrer" data={data.byReferrer} dataKey="count" nameKey="referrer" />
-          </div>
-        </>
-      )}
-    </div>
+      <div className="rise-in mt-4" style={{ animationDelay: '120ms' }}>
+        <ClicksChart data={timeline} />
+      </div>
+
+      <div className="rise-in mt-4 grid gap-4 sm:grid-cols-2" style={{ animationDelay: '180ms' }}>
+        <StatBars title="Device" data={toEntries(data.byDevice, 'device')} />
+        <StatBars title="Browser" data={toEntries(data.byBrowser, 'browser')} />
+        <StatBars title="Country" data={toEntries(data.byCountry, 'country')} />
+        <StatBars title="Referrer" data={toEntries(data.byReferrer, 'referrer')} />
+      </div>
+    </>
   );
 }
