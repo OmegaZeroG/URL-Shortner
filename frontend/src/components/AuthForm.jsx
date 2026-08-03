@@ -36,7 +36,7 @@ export default function AuthForm({ mode, onAuthed, setView }) {
             <Link2 className="h-4.5 w-4.5" strokeWidth={2.5} />
           </span>
           <span className="font-display text-base font-bold tracking-tight">
-            URL<span className="text-primary">.</span>Shortener
+            trim<span className="text-primary">.</span>link
           </span>
         </button>
 

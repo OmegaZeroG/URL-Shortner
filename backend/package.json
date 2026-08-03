@@ -1,7 +1,7 @@
 {
   "name": "url-shortener-backend",
   "version": "1.0.0",
-  "description": "URL Shortener API — Node.js/Express/PostgreSQL",
+  "description": "trim.link API — Node.js/Express/PostgreSQL",
   "main": "src/server.js",
   "scripts": {
     "start": "node src/server.js",

@@ -19,7 +19,7 @@ export default function Nav({ view, setView, isAuthed, userEmail, onLogout }) {
             <Link2 className="h-4 w-4" strokeWidth={2.5} />
           </span>
           <span className="truncate font-display text-[15px] font-bold tracking-tight">
-            URL<span className="text-primary">.</span>Shortener
+            trim<span className="text-primary">.</span>link
           </span>
         </button>
 

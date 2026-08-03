@@ -1,4 +1,4 @@
--- Initial schema for URL Shortener
+-- Initial schema for trim.link
 -- Run this against your PostgreSQL database before starting the server.
 
 CREATE EXTENSION IF NOT EXISTS "pgcrypto"; -- for gen_random_uuid()
