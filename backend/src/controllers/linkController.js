@@ -1,12 +1,15 @@
 const pool = require('../config/db');
 const { encode } = require('../utils/base62');
+const { nextSnowflakeId } = require('../utils/snowflake');
 const { getCachedLink, cacheLink } = require('../utils/cache');
 const { recordClickEvent } = require('../utils/clickEvents');
+const { captureError } = require('../instrument');
 
 const CUSTOM_ALIAS_RE = /^[a-zA-Z0-9_-]{3,32}$/;
+const VALID_ID_STRATEGIES = ['counter', 'snowflake'];
 
 async function shortenUrl(req, res) {
-  const { longUrl, customAlias, expiresAt } = req.body;
+  const { longUrl, customAlias, expiresAt, idStrategy = 'counter' } = req.body;
 
   if (!longUrl || typeof longUrl !== 'string') {
     return res.status(400).json({ error: 'longUrl is required' });
@@ -21,6 +24,12 @@ async function shortenUrl(req, res) {
     return res.status(400).json({
       error: 'customAlias must be 3-32 characters: letters, numbers, _ or -',
     });
+  }
+
+  if (!VALID_ID_STRATEGIES.includes(idStrategy)) {
+    return res
+      .status(400)
+      .json({ error: `idStrategy must be one of: ${VALID_ID_STRATEGIES.join(', ')}` });
   }
 
   // req.user is set by the optionalAuth middleware when a valid Bearer token
@@ -46,8 +55,13 @@ async function shortenUrl(req, res) {
       return res.status(201).json(toResponse(insert.rows[0], req));
     }
 
-    // No custom alias: insert first to get the auto-increment id, then
-    // Base62-encode that id into the short_code and update the row.
+    if (idStrategy === 'snowflake') {
+      return await shortenWithSnowflake({ longUrl, ownerId, expiresAt, req, res });
+    }
+
+    // Default: counter + Base62 (see base62.js / DESIGN.md section 7). Insert
+    // first to get the auto-increment id, then Base62-encode that id into
+    // the short_code and update the row.
     const insert = await pool.query(
       `INSERT INTO links (short_code, long_url, owner_id, expires_at)
        VALUES ('', $1, $2, $3) RETURNING id, long_url, expires_at`,
@@ -61,8 +75,38 @@ async function shortenUrl(req, res) {
     );
     return res.status(201).json(toResponse(updated.rows[0], req));
   } catch (err) {
+    captureError(err);
     console.error('shortenUrl error:', err);
     return res.status(500).json({ error: 'Internal server error' });
+  }
+}
+
+// Snowflake path: the id is generated client-side, before the INSERT —
+// unlike the counter path, which needs a DB round-trip first to get the
+// next sequence value. That's exactly why Snowflake removes the
+// shared-sequence bottleneck: no round-trip to a central counter is needed
+// before an id can be assigned, so multiple app servers can generate ids
+// concurrently with zero coordination. See utils/snowflake.js.
+//
+// Collision is vanishingly unlikely (would require the same worker to
+// double-generate the same timestamp+sequence pair, which the generator
+// itself already prevents), but the DB's UNIQUE constraint on short_code is
+// the real safety net — on the rare unique_violation (Postgres code 23505)
+// this retries once with a freshly generated id before giving up.
+async function shortenWithSnowflake({ longUrl, ownerId, expiresAt, req, res }, attempt = 0) {
+  const shortCode = encode(nextSnowflakeId());
+  try {
+    const insert = await pool.query(
+      `INSERT INTO links (short_code, long_url, owner_id, expires_at)
+       VALUES ($1, $2, $3, $4) RETURNING short_code, long_url, expires_at`,
+      [shortCode, longUrl, ownerId, expiresAt || null]
+    );
+    return res.status(201).json(toResponse(insert.rows[0], req));
+  } catch (err) {
+    if (err.code === '23505' && attempt < 1) {
+      return shortenWithSnowflake({ longUrl, ownerId, expiresAt, req, res }, attempt + 1);
+    }
+    throw err;
   }
 }
 
@@ -120,6 +164,7 @@ async function redirectUrl(req, res) {
 
     return res.redirect(302, longUrl);
   } catch (err) {
+    captureError(err);
     console.error('redirectUrl error:', err);
     return res.status(500).json({ error: 'Internal server error' });
   }
@@ -143,6 +188,7 @@ async function getMyLinks(req, res) {
     }));
     return res.json({ links });
   } catch (err) {
+    captureError(err);
     console.error('getMyLinks error:', err);
     return res.status(500).json({ error: 'Internal server error' });
   }
@@ -201,6 +247,7 @@ async function getLinkAnalytics(req, res) {
       byReferrer: byReferrer.rows.map((r) => ({ referrer: r.referrer, count: Number(r.count) })),
     });
   } catch (err) {
+    captureError(err);
     console.error('getLinkAnalytics error:', err);
     return res.status(500).json({ error: 'Internal server error' });
   }
@@ -220,6 +267,7 @@ async function deleteLink(req, res) {
     }
     return res.status(204).send();
   } catch (err) {
+    captureError(err);
     console.error('deleteLink error:', err);
     return res.status(500).json({ error: 'Internal server error' });
   }

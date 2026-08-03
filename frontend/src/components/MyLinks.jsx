@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'react';
-import { getMyLinks, deleteLink } from '../api';
+import * as Sentry from '@sentry/react';
+import { getMyLinks, deleteLink, isUnexpectedError } from '../api';
 import { styles } from '../styles';
 
 export default function MyLinks({ token, onViewAnalytics }) {
@@ -9,7 +10,10 @@ export default function MyLinks({ token, onViewAnalytics }) {
   useEffect(() => {
     getMyLinks(token)
       .then((data) => setLinks(data.links))
-      .catch((err) => setError(err.message));
+      .catch((err) => {
+        if (isUnexpectedError(err)) Sentry.captureException(err);
+        setError(err.message);
+      });
   }, [token]);
 
   async function handleDelete(code) {
@@ -17,6 +21,7 @@ export default function MyLinks({ token, onViewAnalytics }) {
       await deleteLink(token, code);
       setLinks((prev) => prev.filter((l) => l.shortCode !== code));
     } catch (err) {
+      if (isUnexpectedError(err)) Sentry.captureException(err);
       setError(err.message);
     }
   }

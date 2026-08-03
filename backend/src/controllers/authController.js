@@ -1,6 +1,7 @@
 const bcrypt = require('bcryptjs');
 const jwt = require('jsonwebtoken');
 const pool = require('../config/db');
+const { captureError } = require('../instrument');
 
 const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 const SALT_ROUNDS = 10;
@@ -39,6 +40,7 @@ async function signup(req, res) {
     const token = signToken(user);
     return res.status(201).json({ token, user: { id: user.id, email: user.email } });
   } catch (err) {
+    captureError(err);
     console.error('signup error:', err);
     return res.status(500).json({ error: 'Internal server error' });
   }
@@ -71,6 +73,7 @@ async function login(req, res) {
     const token = signToken(user);
     return res.json({ token, user: { id: user.id, email: user.email } });
   } catch (err) {
+    captureError(err);
     console.error('login error:', err);
     return res.status(500).json({ error: 'Internal server error' });
   }

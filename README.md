@@ -99,5 +99,8 @@ Benchmarked with [k6](https://k6.io) against a local instance (still using the r
 - [x] Rate limiting — 10 requests/min per IP on `POST /api/shorten`, Redis-backed (`src/middleware/rateLimiter.js`)
 - [x] JWT auth + per-user link management — signup/login, bcrypt password hashing, Bearer token stored in localStorage, "My Links" dashboard (list + delete, owner-only), anonymous shortening still works
 - [x] Analytics dashboard — click events logged async per redirect (device/browser via `ua-parser-js`, country via `ip-api.com`, referrer), charted per-link in the frontend (clicks over time + device/browser/country/referrer breakdown, via Recharts)
+- [x] Security hardening — `helmet`, CORS origin allowlist (`FRONTEND_ORIGIN`), Redis-backed rate limiting on login/signup, Dependabot + `npm audit --audit-level=high` gating CI
+- [x] Snowflake-style distributed ID generator — opt-in alternative to counter+Base62 (`src/utils/snowflake.js`), selectable via a dropdown in the shorten form, see `system-design-one-pager.md` section 4b
+- [x] Sentry error tracking — backend (`@sentry/node`) and frontend (`@sentry/react`), both DSN-gated and no-op without your own Sentry account/keys (see `PROGRESS.md`)
 
 Full roadmap: see `../url-shortener-project-plan.md`.

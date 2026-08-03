@@ -1,4 +1,5 @@
 import { useEffect, useState } from 'react';
+import * as Sentry from '@sentry/react';
 import {
   ResponsiveContainer,
   LineChart,
@@ -10,7 +11,7 @@ import {
   BarChart,
   Bar,
 } from 'recharts';
-import { getLinkAnalytics } from '../api';
+import { getLinkAnalytics, isUnexpectedError } from '../api';
 import { styles } from '../styles';
 
 const COLORS = { line: '#6366f1', bar: '#818cf8' };
@@ -51,7 +52,10 @@ export default function Analytics({ token, code, onBack }) {
   useEffect(() => {
     getLinkAnalytics(token, code)
       .then(setData)
-      .catch((err) => setError(err.message));
+      .catch((err) => {
+        if (isUnexpectedError(err)) Sentry.captureException(err);
+        setError(err.message);
+      });
   }, [token, code]);
 
   const totalClicks = data?.clicksByDay?.reduce((sum, d) => sum + d.count, 0) ?? 0;

@@ -1,5 +1,6 @@
 import { useState } from 'react';
-import { login, signup } from '../api';
+import * as Sentry from '@sentry/react';
+import { login, signup, isUnexpectedError } from '../api';
 import { styles } from '../styles';
 
 export default function AuthForm({ mode, onAuthed, setView }) {
@@ -17,6 +18,7 @@ export default function AuthForm({ mode, onAuthed, setView }) {
       const data = isSignup ? await signup(email, password) : await login(email, password);
       onAuthed(data.token, data.user.email);
     } catch (err) {
+      if (isUnexpectedError(err)) Sentry.captureException(err);
       setError(err.message);
     } finally {
       setLoading(false);

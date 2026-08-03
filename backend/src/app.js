@@ -1,6 +1,7 @@
 const express = require('express');
 const cors = require('cors');
 const helmet = require('helmet');
+const { Sentry } = require('./instrument');
 const pool = require('./config/db');
 const linkRoutes = require('./routes/linkRoutes');
 const authRoutes = require('./routes/authRoutes');
@@ -62,6 +63,13 @@ app.get('/health', async (req, res) => {
 
 app.use('/', authRoutes);
 app.use('/', linkRoutes);
+
+// Catches anything that reaches Express's error-handling chain via
+// next(err) or a synchronous throw in middleware (e.g. a malformed-JSON
+// body from express.json()). Most of this app's own errors are already
+// caught inside each controller and reported via captureError() instead
+// (see instrument.js) — this is the safety net for what isn't.
+Sentry.setupExpressErrorHandler(app);
 
 // 404 fallback
 app.use((req, res) => res.status(404).json({ error: 'Not found' }));
