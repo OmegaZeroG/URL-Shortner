@@ -61,10 +61,7 @@ export default function ShortenForm({ token }) {
   return (
     <>
       <div className="rise-in mx-auto max-w-2xl text-center">
-        <span className="inline-flex items-center gap-2 rounded-full border border-border bg-secondary/50 px-3 py-1 text-xs text-muted-foreground">
-          <Sparkles className="h-3.5 w-3.5 text-primary" />
-          Real Redis caching, real load-test numbers, real deploys
-        </span>
+        
         <h1 className="mt-6 text-4xl font-bold leading-[1.05] sm:text-5xl">
           Long links in.
           <br />
@@ -103,9 +100,13 @@ export default function ShortenForm({ token }) {
             <input
               value={customAlias}
               onChange={(e) => setCustomAlias(e.target.value.replace(/\s/g, ''))}
-              placeholder="optional"
+              placeholder="e.g. my-launch-post"
+              title="Pick your own short code instead of an auto-generated one, 3-32 characters: letters, numbers, _ or -"
               className="mt-2.5 w-full rounded-xl border border-input bg-background/60 px-4 py-3 font-mono text-sm outline-none transition-all duration-200 placeholder:text-muted-foreground/70 focus:border-primary/60 focus:ring-4 focus:ring-ring/25"
             />
+            <p className="mt-1.5 text-[11px] leading-relaxed text-muted-foreground">
+              Pick your own code instead of an auto-generated one — 3-32 characters.
+            </p>
           </div>
           <div>
             <label className="block text-xs font-semibold uppercase tracking-[0.14em] text-muted-foreground">

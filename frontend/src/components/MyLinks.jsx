@@ -104,6 +104,7 @@ export default function MyLinks({ token, onViewAnalytics, onNewLink }) {
               <button
                 onClick={() => copy(link)}
                 aria-label="Copy short link"
+                title={copied === link.shortCode ? 'Copied' : 'Copy short link'}
                 className="grid h-8 w-8 place-items-center rounded-lg border border-border text-muted-foreground transition-colors duration-200 hover:bg-secondary hover:text-foreground"
               >
                 {copied === link.shortCode ? (
@@ -115,6 +116,7 @@ export default function MyLinks({ token, onViewAnalytics, onNewLink }) {
               <button
                 onClick={() => onViewAnalytics(link.shortCode)}
                 aria-label="View analytics"
+                title="View analytics"
                 className="grid h-8 w-8 place-items-center rounded-lg border border-border text-muted-foreground transition-colors duration-200 hover:bg-secondary hover:text-foreground"
               >
                 <BarChart3 className="h-3.5 w-3.5" />
@@ -122,6 +124,7 @@ export default function MyLinks({ token, onViewAnalytics, onNewLink }) {
               <button
                 onClick={() => handleDelete(link.shortCode)}
                 aria-label="Delete link"
+                title="Delete link"
                 className="grid h-8 w-8 place-items-center rounded-lg border border-border text-muted-foreground transition-colors duration-200 hover:border-destructive/50 hover:bg-destructive/15 hover:text-destructive-foreground"
               >
                 <Trash2 className="h-3.5 w-3.5" />
