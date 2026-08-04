@@ -9,12 +9,18 @@ const authRoutes = require('./routes/authRoutes');
 const app = express();
 
 // Render (and most PaaS platforms) sit behind a reverse proxy. Without this,
-// req.ip returns the proxy's internal IP for every single request instead
-// of the real client IP — silently breaking both the per-IP rate limiter
+// req.ip returns a proxy's internal IP for every single request instead of
+// the real client IP — silently breaking both the per-IP rate limiter
 // (middleware/rateLimiter.js) and geo lookups (utils/geo.js), since every
-// request would appear to come from the same "IP." This tells Express to
-// trust the X-Forwarded-For header set by Render's proxy (one hop).
-app.set('trust proxy', 1);
+// request would appear to come from the same "IP."
+//
+// Render's traffic actually passes through TWO hops before reaching this
+// app — Cloudflare's edge, then Render's own load balancer — confirmed by a
+// real production bug: geo lookups were failing with "private range" for
+// ip=10.26.192.130 (an internal Render address) when this was set to `1`,
+// which only trusts one hop and lands one step short of the real client IP.
+// `2` tells Express to walk back through both known hops.
+app.set('trust proxy', 2);
 
 // Standard secure headers (CSP, HSTS, X-Frame-Options, etc.) — disable
 // contentSecurityPolicy's default directives since this is a JSON API, not
