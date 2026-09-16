@@ -208,43 +208,49 @@ async function getLinkAnalytics(req, res) {
     }
     const linkId = linkResult.rows[0].id;
 
-    // Five independent aggregate queries run in parallel rather than one
-    // big query — each GROUP BY is over a different dimension, so combining
-    // them into one query would require expensive self-joins for no benefit.
-    const [byDay, byDevice, byBrowser, byCountry, byReferrer] = await Promise.all([
+    // Originally 5 separate pool.query() calls in Promise.all — parallelized
+    // in-process, but still 5 separate network round trips to Neon, each
+    // paying its own connection/protocol overhead on top of query time.
+    // The 4 breakdown queries (device/browser/country/referrer) are
+    // structurally identical (COUNT grouped by one column off the same
+    // link_id), so they're combined into a single UNION ALL query — each
+    // branch keeps its own ORDER BY/LIMIT via parens, a `dim` column tags
+    // which breakdown each row belongs to, and pickDim() below splits them
+    // back apart in JS. clicksByDay stays separate since date_trunc bucketing
+    // is a different shape. Net effect: 5 round trips -> 2.
+    const [byDay, breakdown] = await Promise.all([
       pool.query(
         `SELECT date_trunc('day', clicked_at) AS day, COUNT(*) AS count
          FROM click_events WHERE link_id = $1 GROUP BY day ORDER BY day ASC`,
         [linkId]
       ),
       pool.query(
-        `SELECT COALESCE(device, 'desktop') AS device, COUNT(*) AS count
-         FROM click_events WHERE link_id = $1 GROUP BY device ORDER BY count DESC`,
-        [linkId]
-      ),
-      pool.query(
-        `SELECT COALESCE(browser, 'Unknown') AS browser, COUNT(*) AS count
-         FROM click_events WHERE link_id = $1 GROUP BY browser ORDER BY count DESC`,
-        [linkId]
-      ),
-      pool.query(
-        `SELECT COALESCE(country, 'Unknown') AS country, COUNT(*) AS count
-         FROM click_events WHERE link_id = $1 GROUP BY country ORDER BY count DESC`,
-        [linkId]
-      ),
-      pool.query(
-        `SELECT COALESCE(NULLIF(referrer, ''), 'Direct') AS referrer, COUNT(*) AS count
-         FROM click_events WHERE link_id = $1 GROUP BY referrer ORDER BY count DESC LIMIT 10`,
+        `(SELECT 'device' AS dim, COALESCE(device, 'desktop') AS label, COUNT(*) AS count
+          FROM click_events WHERE link_id = $1 GROUP BY device ORDER BY count DESC)
+         UNION ALL
+         (SELECT 'browser', COALESCE(browser, 'Unknown'), COUNT(*)
+          FROM click_events WHERE link_id = $1 GROUP BY browser ORDER BY count DESC)
+         UNION ALL
+         (SELECT 'country', COALESCE(country, 'Unknown'), COUNT(*)
+          FROM click_events WHERE link_id = $1 GROUP BY country ORDER BY count DESC)
+         UNION ALL
+         (SELECT 'referrer', COALESCE(NULLIF(referrer, ''), 'Direct'), COUNT(*)
+          FROM click_events WHERE link_id = $1 GROUP BY referrer ORDER BY count DESC LIMIT 10)`,
         [linkId]
       ),
     ]);
 
+    const pickDim = (dim) =>
+      breakdown.rows
+        .filter((r) => r.dim === dim)
+        .map((r) => ({ [dim]: r.label, count: Number(r.count) }));
+
     return res.json({
       clicksByDay: byDay.rows.map((r) => ({ date: r.day, count: Number(r.count) })),
-      byDevice: byDevice.rows.map((r) => ({ device: r.device, count: Number(r.count) })),
-      byBrowser: byBrowser.rows.map((r) => ({ browser: r.browser, count: Number(r.count) })),
-      byCountry: byCountry.rows.map((r) => ({ country: r.country, count: Number(r.count) })),
-      byReferrer: byReferrer.rows.map((r) => ({ referrer: r.referrer, count: Number(r.count) })),
+      byDevice: pickDim('device'),
+      byBrowser: pickDim('browser'),
+      byCountry: pickDim('country'),
+      byReferrer: pickDim('referrer'),
     });
   } catch (err) {
     captureError(err);

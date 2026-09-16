@@ -1,6 +1,7 @@
 const express = require('express');
 const cors = require('cors');
 const helmet = require('helmet');
+const compression = require('compression');
 const { Sentry } = require('./instrument');
 const pool = require('./config/db');
 const linkRoutes = require('./routes/linkRoutes');
@@ -27,6 +28,14 @@ app.set('trust proxy', 2);
 // a page that serves its own HTML/scripts; a strict default CSP has no
 // effect here and just adds noise to headers.
 app.use(helmet({ contentSecurityPolicy: false }));
+
+// Gzips every JSON response over 1KB (the default threshold) before it
+// leaves the server — the analytics endpoint's payload (clicks-by-day +
+// 4 breakdown arrays) is exactly the kind of repetitive-key JSON that
+// compresses hardest. Costs a little CPU per request in exchange for a
+// meaningfully smaller response over the wire; worth it for a JSON API
+// that isn't CPU-bound anywhere else in the request path.
+app.use(compression());
 
 // Locked down to specific origins instead of the previous wildcard — set
 // FRONTEND_ORIGIN to a comma-separated list in .env (defaults to the local

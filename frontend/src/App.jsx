@@ -1,12 +1,22 @@
-import { useState } from 'react';
+import { lazy, Suspense, useState } from 'react';
 import Nav from './components/Nav';
 import ShortenForm from './components/ShortenForm';
-import AuthForm from './components/AuthForm';
-import MyLinks from './components/MyLinks';
-import Analytics from './components/Analytics';
+
+// ShortenForm above is imported eagerly — it's the default view and what
+// almost every visit needs immediately, so it belongs in the main bundle.
+// AuthForm/MyLinks/Analytics are lazy: each is its own chunk that Vite only
+// downloads once the user actually navigates there, instead of every
+// visitor paying for all four views' code on the very first load.
+const AuthForm = lazy(() => import('./components/AuthForm'));
+const MyLinks = lazy(() => import('./components/MyLinks'));
+const Analytics = lazy(() => import('./components/Analytics'));
 
 const TOKEN_KEY = 'url_shortener_token';
 const EMAIL_KEY = 'url_shortener_email';
+
+function ViewLoading() {
+  return <p className="text-center text-sm text-muted-foreground">Loading...</p>;
+}
 
 export default function App() {
   const [token, setToken] = useState(() => localStorage.getItem(TOKEN_KEY) || '');
@@ -41,11 +51,9 @@ export default function App() {
   // the reference design, where auth is a deliberately quiet, focused page.
   if (view === 'login' || view === 'signup') {
     return (
-      <AuthForm
-        mode={view}
-        onAuthed={handleAuthed}
-        setView={setView}
-      />
+      <Suspense fallback={<ViewLoading />}>
+        <AuthForm mode={view} onAuthed={handleAuthed} setView={setView} />
+      </Suspense>
     );
   }
 
@@ -62,14 +70,18 @@ export default function App() {
       <main className="mx-auto max-w-5xl px-5 pb-24 pt-10 sm:pt-16">
         {view === 'shorten' && <ShortenForm token={token} />}
         {view === 'mylinks' && isAuthed && (
-          <MyLinks
-            token={token}
-            onViewAnalytics={handleViewAnalytics}
-            onNewLink={() => setView('shorten')}
-          />
+          <Suspense fallback={<ViewLoading />}>
+            <MyLinks
+              token={token}
+              onViewAnalytics={handleViewAnalytics}
+              onNewLink={() => setView('shorten')}
+            />
+          </Suspense>
         )}
         {view === 'analytics' && isAuthed && analyticsCode && (
-          <Analytics token={token} code={analyticsCode} onBack={() => setView('mylinks')} />
+          <Suspense fallback={<ViewLoading />}>
+            <Analytics token={token} code={analyticsCode} onBack={() => setView('mylinks')} />
+          </Suspense>
         )}
       </main>
     </div>

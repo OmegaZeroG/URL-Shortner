@@ -2,6 +2,8 @@
 
 Benchmarks redirect latency for the two paths in `redirectUrl` (see `../src/controllers/linkController.js` and `../src/utils/cache.js`): a cache **miss** (falls through to Postgres) and a cache **hit** (served entirely from Redis). Run both and compare — that comparison is the number worth putting in the README and talking about in an interview.
 
+`analytics-test.js` benchmarks a different, heavier endpoint: `GET /api/links/:code/analytics`, which does 2 database round trips per request (down from 5, after the UNION ALL consolidation documented in `PROGRESS.md`) instead of the redirect path's single Redis lookup. Its setup phase signs up a disposable test user and seeds 50 real clicks so the aggregate queries have real data to group, not an empty table.
+
 Run this against your **local** dev server, not the live Render URL — it still hits real Neon and Upstash over the network (nothing is mocked), so the numbers are real, but it avoids burning through Render's free-tier compute or Upstash's free command quota on a public endpoint.
 
 ## 1. Install k6
@@ -32,6 +34,7 @@ With the backend running locally (`npm run dev`, default `http://localhost:4000`
 cd backend
 k6 run loadtest/cache-miss-test.js
 k6 run loadtest/cache-hit-test.js
+k6 run loadtest/analytics-test.js
 ```
 
 ## 4. Read the results
@@ -40,8 +43,11 @@ k6 prints a summary with `http_req_duration` percentiles (p50, p90, p95, max) au
 
 - **Cache miss** `http_req_duration` — latency when the request falls through to Postgres.
 - **Cache hit** `http_req_duration` — latency when served entirely from Redis.
+- **Analytics** `http_req_duration` — latency of the 2-round-trip analytics query, under 20 concurrent users.
 
-The gap between these two is the actual, measured value the Redis cache-aside layer is providing — not a guess, real numbers from your own deployment. Record both p50 and p95 (p95 matters more for a "how does it behave under load" story than the average).
+The gap between the first two is the actual, measured value the Redis cache-aside layer is providing — not a guess, real numbers from your own deployment. Record both p50 and p95 (p95 matters more for a "how does it behave under load" story than the average).
+
+**Optional, stronger version of the analytics story**: to measure the actual before/after of the query consolidation (5 round trips → 2) rather than just the current number, temporarily revert `getLinkAnalytics` in `linkController.js` to the old 5-query version (check `git log`/`git diff` for the commit that changed it), run `analytics-test.js` for the "before" number, then restore the current version and run it again for "after." Not required — the single current-state number is still a real, legitimate result — but a real before/after is a stronger interview answer if you have the time.
 
 ## 5. Put the numbers in the README
 
