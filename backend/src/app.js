@@ -61,12 +61,20 @@ app.use(
 
 app.use(express.json());
 
-// Touches Postgres (not just the Node process) so an external keep-alive
-// ping (e.g. UptimeRobot) also prevents the DB provider's own idle-suspend,
-// not just Render's. Redis isn't pinged here — it's already exercised on
-// every real redirect, and its idle-suspend behavior isn't a concern for
-// this project's free tier.
-app.get('/health', async (req, res) => {
+// Static on purpose — does NOT query Postgres. This is the endpoint the
+// external keep-alive monitor (UptimeRobot, every 5 min) hits to stop
+// Render's free tier from spinning down. It previously ran SELECT 1, which
+// also kept Neon's compute awake 24/7 and burned through the free plan's
+// monthly compute allowance with zero real traffic (real production
+// incident — see PROGRESS.md). Neon now auto-suspends after 5 idle minutes
+// like it's meant to and wakes on the first real query (~1s cold start).
+app.get('/health', (req, res) => {
+  res.json({ status: 'ok' });
+});
+
+// Deep check that actually touches Postgres — for manual debugging only.
+// Never point an uptime monitor at this one: every call wakes Neon's compute.
+app.get('/health/db', async (req, res) => {
   try {
     await pool.query('SELECT 1');
     res.json({ status: 'ok' });
