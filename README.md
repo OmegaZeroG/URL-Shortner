@@ -2,11 +2,82 @@
 
 [![CI/CD](https://github.com/OmegaZeroG/URL-Shortner/actions/workflows/ci-cd.yml/badge.svg)](https://github.com/OmegaZeroG/URL-Shortner/actions/workflows/ci-cd.yml)
 
-**Live**: https://trim-link-forge.vercel.app (frontend) · https://url-shortener-backend-tmhc.onrender.com (API)
+**Live**: https://trim-link-forge.vercel.app (frontend) · https://tm-lnk.onrender.com (API)
 
 A portfolio project demonstrating system-design fundamentals: URL shortening with Base62 encoding, Redis caching, rate limiting, JWT auth, and click analytics.
 
 See [`../DESIGN.md`](../DESIGN.md) for the full system design doc (requirements, capacity estimation, API contract, DB schema, encoding strategy, architecture) and [`../PROGRESS.md`](../PROGRESS.md) for build progress.
+
+## Architecture
+
+```mermaid
+flowchart LR
+    U[Browser] -->|HTML/JS| V[Vercel<br/>React + Vite]
+    V -->|REST + JWT| R[Render<br/>Express API<br/>tm-lnk.onrender.com]
+    U -->|GET /:code| R
+    R -->|cache-aside| C[(Upstash Redis<br/>cache + rate limits)]
+    R -->|SQL| P[(Neon Postgres<br/>users, links, click_events)]
+    R -.->|errors| S[Sentry]
+    R -.->|geo lookup| G[ip-api.com]
+```
+
+### Shorten flow (`POST /api/shorten`)
+
+```mermaid
+sequenceDiagram
+    participant B as Browser
+    participant A as Express API
+    participant RL as Redis (rate limit)
+    participant DB as Postgres
+    B->>A: POST /api/shorten {url, alias?, idStrategy?}
+    A->>RL: check 10 req/min per IP
+    RL-->>A: allowed
+    alt custom alias
+        A->>DB: INSERT with alias as code
+    else counter (default)
+        A->>DB: INSERT, get bigserial id
+        A->>A: Base62 encode id
+        A->>DB: UPDATE short_code
+    else snowflake
+        A->>A: nextSnowflakeId() then Base62
+        A->>DB: INSERT (retry once on unique violation)
+    end
+    A-->>B: 201 {shortUrl}
+```
+
+### Redirect flow (`GET /:code`)
+
+```mermaid
+sequenceDiagram
+    participant B as Browser
+    participant A as Express API
+    participant C as Redis
+    participant DB as Postgres
+    B->>A: GET /:code
+    A->>C: GET code
+    alt cache hit
+        C-->>A: {longUrl, linkId}
+    else cache miss
+        A->>DB: SELECT link
+        DB-->>A: row (check expiry)
+        A->>C: SET with TTL (capped to link expiry)
+    end
+    A-->>B: 302 Location: longUrl
+    A--)DB: async: click_count + click_event (not awaited)
+```
+
+### CI/CD
+
+```mermaid
+flowchart LR
+    G[git push to master] --> T[backend-test<br/>lint, test, npm audit]
+    G --> F[frontend-build]
+    T --> D{both pass?}
+    F --> D
+    D -->|yes| RH[Render deploy hook]
+    D -->|yes| VH[Vercel deploy hook]
+    D -->|no| X[No deploy]
+```
 
 ## Stack
 - Backend: Node.js + Express + PostgreSQL (Neon)
@@ -61,15 +132,17 @@ Auto-deploy-on-push is **disabled** on both platforms on purpose. Deploys only h
 ### Backend → Render
 1. [render.com](https://render.com) → New → Web Service → connect the `URL-Shortner` GitHub repo.
 2. Root Directory: `backend`. Build Command: `npm install`. Start Command: `npm start`.
-3. Environment variables: `DATABASE_URL` (Neon), `REDIS_URL` (Upstash), `JWT_SECRET` (generate with `node -e "console.log(require('crypto').randomBytes(32).toString('hex'))"` — use a different value than your local `.env`). Don't set `PORT` — Render injects it automatically and the app already reads `process.env.PORT`.
+3. Environment variables: `DATABASE_URL` (Neon, pooled connection), `REDIS_URL` (Upstash), `JWT_SECRET` (generate with `node -e "console.log(require('crypto').randomBytes(32).toString('hex'))"` — use a different value than your local `.env`), `FRONTEND_ORIGIN` (your Vercel URL, e.g. `https://trim-link-forge.vercel.app` — without it CORS blocks the frontend), `BASE_URL` (this service's public URL, used to build the short links), optional `SENTRY_DSN` and `SNOWFLAKE_WORKER_ID` (0-1023, unique per instance). Don't set `PORT` — Render injects it automatically and the app already reads `process.env.PORT`.
 4. Settings → Build & Deploy → **Auto-Deploy: No**.
 5. Settings → Deploy Hook → copy the URL.
-6. Note your service's public URL (`https://<your-service-name>.onrender.com`) — you'll need it for the frontend.
+6. Note your service's public URL (`https://<your-service-name>.onrender.com`) — you'll need it for the frontend. Render subdomains can't be renamed later, so pick a short service name up front (this project uses `tm-lnk`).
+7. Express runs with `trust proxy` set to `2` because Render sits behind two proxy hops (Cloudflare + Render's load balancer). Change it if you deploy elsewhere.
+8. Uptime monitors should ping `/health` (static, no DB). `/health/db` queries Postgres and is for manual checks only — pinging it keeps Neon awake and burns the free compute allowance.
 
 ### Frontend → Vercel
 1. [vercel.com](https://vercel.com) → New Project → import the same GitHub repo.
 2. Root Directory: `frontend`. Framework Preset: Vite (auto-detected).
-3. Environment variable: `VITE_API_BASE_URL` = your Render backend URL from above.
+3. Environment variables (add as plain env vars, not secrets): `VITE_API_BASE_URL` = your Render backend URL from above (`https://tm-lnk.onrender.com`), and optionally `VITE_SENTRY_DSN` (use a separate Sentry project from the backend). Redeploy after changing them — Vite bakes them in at build time.
 4. `frontend/vercel.json` already sets `git.deploymentEnabled: false`, so Vercel won't auto-deploy on push — only the Deploy Hook will trigger it.
 5. Settings → Git → Deploy Hooks → create one, copy the URL.
 
@@ -91,6 +164,20 @@ Benchmarked with [k6](https://k6.io) against a local instance (still using the r
 
 **The Redis cache-aside layer cuts redirect latency by ~3.2x at p50 and ~5.9x at p95**, with the gap widening at the tail — the cache-miss path has much higher variance (Postgres connection + query overhead), while the cache-hit path stays consistently fast under sustained concurrent load (0% errors across all 6,351 requests). This is the concrete evidence behind the caching decision in `DESIGN.md` section 8, not just a design assumption.
 
+## Lighthouse (measured)
+| | Performance | Accessibility | Best Practices | SEO |
+|---|---|---|---|---|
+| Desktop | 99 | 100 | 100 | 90* |
+| Mobile (slow 4G) | 90 | 100 | 100 | 90* |
+
+\*Measured before adding the meta description, which was the missing item. Re-run to confirm. Mobile FCP/LCP was 2.9s before the font-weight trimming (12 → 7 font files).
+
+## Performance work
+- Analytics endpoint: 5 DB round trips cut to 2 (`UNION ALL` with a `dim` tag column), plus a composite index on `click_events(link_id, clicked_at)` (`migrations/002_analytics_composite_index.sql`).
+- Gzip via `compression` middleware.
+- Frontend code-splitting (`React.lazy`) for login, My Links and Analytics screens.
+- Benchmarks for the analytics query and endpoint: `scripts/benchmark-analytics-index.sql` and `loadtest/analytics-test.js` (results not recorded yet).
+
 ## Current status: Phase 2 + CI/CD
 - [x] `POST /api/shorten` — Base62-encoded short codes + custom alias support
 - [x] `GET /:code` — 302 redirect, async click_count increment, expiry check
@@ -103,4 +190,6 @@ Benchmarked with [k6](https://k6.io) against a local instance (still using the r
 - [x] Snowflake-style distributed ID generator — opt-in alternative to counter+Base62 (`src/utils/snowflake.js`), selectable via a dropdown in the shorten form, see `system-design-one-pager.md` section 4b
 - [x] Sentry error tracking — backend (`@sentry/node`) and frontend (`@sentry/react`), both DSN-gated and no-op without your own Sentry account/keys (see `PROGRESS.md`)
 - [x] UI redesign — Tailwind CSS v4 "Ink & Ember" theme (dark slate + amber accent, Space Grotesk/DM Sans/JetBrains Mono), hand-rolled charts instead of Recharts, `lucide-react` icons
+- [x] Renamed to trim.link; moved to a new Render service (`tm-lnk`) and a new Neon database after the old one hit the free compute limit (caused by a DB-touching keep-alive endpoint, now fixed)
+- [x] `trust proxy` fixed for Render's two proxy hops (real client IPs for rate limiting and geo lookups)
 
